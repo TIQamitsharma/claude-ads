@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Zap, Eye, EyeOff, AlertCircle } from 'lucide-react'
+import { Zap, Eye, EyeOff, CircleAlert as AlertCircle } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import LoadingSpinner from '../../components/ui/LoadingSpinner'
 
