@@ -1,14 +1,5 @@
 import { NavLink, useNavigate } from 'react-router-dom'
-import {
-  LayoutDashboard,
-  Zap,
-  BarChart3,
-  Plug,
-  Dna,
-  Settings,
-  LogOut,
-  ChevronRight,
-} from 'lucide-react'
+import { LayoutDashboard, Zap, ChartBar as BarChart3, Plug, Dna, Settings, LogOut, ChevronRight } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 
 const navItems = [

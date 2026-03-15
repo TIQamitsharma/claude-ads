@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import type { FormEvent } from 'react'
-import { User, Lock, AlertCircle, CheckCircle2, Loader2, Eye, EyeOff } from 'lucide-react'
+import { User, Lock, CircleAlert as AlertCircle, CircleCheck as CheckCircle2, Loader as Loader2, Eye, EyeOff } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
 

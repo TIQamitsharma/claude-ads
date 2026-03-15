@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
-import { Key, Check, X, Eye, EyeOff, AlertCircle, CheckCircle2, ExternalLink, Loader2 } from 'lucide-react'
+import { Key, Check, X, Eye, EyeOff, CircleAlert as AlertCircle, CircleCheck as CheckCircle2, ExternalLink, Loader as Loader2 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
 import { PLATFORMS } from '../types'

@@ -1,19 +1,6 @@
 import { useEffect, useState, useRef } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import {
-  ArrowLeft,
-  Download,
-  RefreshCw,
-  ChevronDown,
-  ChevronUp,
-  AlertTriangle,
-  AlertCircle,
-  Info,
-  CheckCircle,
-  Zap,
-  Loader2,
-  Clock,
-} from 'lucide-react'
+import { ArrowLeft, Download, RefreshCw, ChevronDown, ChevronUp, TriangleAlert as AlertTriangle, CircleAlert as AlertCircle, Info, CircleCheck as CheckCircle, Zap, Loader as Loader2, Clock } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
 import type { AuditRun, AuditResult, Finding, Recommendation } from '../types'

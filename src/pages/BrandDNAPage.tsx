@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
-import { Dna, Globe, Loader2, Plus, Trash2, ExternalLink, Palette, Type, MessageSquare } from 'lucide-react'
+import { Dna, Globe, Loader as Loader2, Plus, Trash2, ExternalLink, Palette, Type, MessageSquare } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
 import type { BrandProfile } from '../types'

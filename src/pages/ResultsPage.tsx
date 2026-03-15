@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { BarChart3, Clock, Zap, Search, Filter } from 'lucide-react'
+import { ChartBar as BarChart3, Clock, Zap, Search, ListFilter as Filter } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
 import type { AuditRun, AuditResult } from '../types'

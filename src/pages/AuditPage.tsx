@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import type { FormEvent } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Zap, AlertTriangle, ChevronDown, Loader2 } from 'lucide-react'
+import { Zap, TriangleAlert as AlertTriangle, ChevronDown, Loader as Loader2 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
 import { AUDIT_TYPES, INDUSTRIES } from '../types'

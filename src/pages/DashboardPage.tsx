@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Zap, BarChart3, Plug, AlertTriangle, ArrowRight, Clock, CheckCircle, XCircle } from 'lucide-react'
+import { Zap, ChartBar as BarChart3, Plug, TriangleAlert as AlertTriangle, ArrowRight, Clock, CircleCheck as CheckCircle, Circle as XCircle } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
 import type { AuditRun, AdAccount } from '../types'
