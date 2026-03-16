@@ -42,6 +42,7 @@ export interface AuditRun {
   competitor_name: string
   brand_url: string
   status: AuditStatus
+  error_message: string | null
   created_at: string
   updated_at: string
 }

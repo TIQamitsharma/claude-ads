@@ -22,6 +22,13 @@ Deno.serve(async (req: Request) => {
     return new Response(null, { status: 200, headers: corsHeaders })
   }
 
+  const supabase = createClient(
+    Deno.env.get('SUPABASE_URL')!,
+    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+  )
+
+  let run_id: string | undefined
+
   try {
     const authHeader = req.headers.get('Authorization')
     if (!authHeader) {
@@ -30,11 +37,6 @@ Deno.serve(async (req: Request) => {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
     }
-
-    const supabase = createClient(
-      Deno.env.get('SUPABASE_URL')!,
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-    )
 
     const anonClient = createClient(
       Deno.env.get('SUPABASE_URL')!,
@@ -51,7 +53,8 @@ Deno.serve(async (req: Request) => {
     }
 
     const body: AuditRequest = await req.json()
-    const { run_id, audit_type, platform, industry, landing_url, competitor_name, brand_url, ad_context } = body
+    const { run_id: bodyRunId, audit_type, platform, industry, landing_url, competitor_name, brand_url, ad_context } = body
+    run_id = bodyRunId
 
     const { data: keyData } = await supabase
       .from('api_keys')
@@ -61,12 +64,13 @@ Deno.serve(async (req: Request) => {
       .maybeSingle()
 
     if (!keyData?.key_value) {
+      const msg = 'Claude API key not configured. Add it in Integrations.'
       await supabase
         .from('audit_runs')
-        .update({ status: 'failed', updated_at: new Date().toISOString() })
+        .update({ status: 'failed', error_message: msg, updated_at: new Date().toISOString() })
         .eq('id', run_id)
 
-      return new Response(JSON.stringify({ error: 'Claude API key not configured. Add it in Integrations.' }), {
+      return new Response(JSON.stringify({ error: msg }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
@@ -102,7 +106,7 @@ Deno.serve(async (req: Request) => {
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-5',
+        model: 'claude-opus-4-5',
         max_tokens: 4096,
         messages: [{ role: 'user', content: prompt }],
       }),
@@ -110,11 +114,17 @@ Deno.serve(async (req: Request) => {
 
     if (!claudeRes.ok) {
       const errText = await claudeRes.text()
+      let friendlyMsg = `Claude API error (${claudeRes.status})`
+      try {
+        const errJson = JSON.parse(errText)
+        if (errJson?.error?.message) friendlyMsg = errJson.error.message
+      } catch { /* use default */ }
+
       await supabase
         .from('audit_runs')
-        .update({ status: 'failed', updated_at: new Date().toISOString() })
+        .update({ status: 'failed', error_message: friendlyMsg, updated_at: new Date().toISOString() })
         .eq('id', run_id)
-      return new Response(JSON.stringify({ error: `Claude API error: ${errText}` }), {
+      return new Response(JSON.stringify({ error: friendlyMsg }), {
         status: 502,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
@@ -147,6 +157,13 @@ Deno.serve(async (req: Request) => {
     })
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Internal server error'
+    if (run_id) {
+      await supabase
+        .from('audit_runs')
+        .update({ status: 'failed', error_message: msg, updated_at: new Date().toISOString() })
+        .eq('id', run_id)
+        .catch(() => {})
+    }
     return new Response(JSON.stringify({ error: msg }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -167,7 +184,7 @@ function buildPrompt(params: {
   const { audit_type, platform, industry, landing_url, competitor_name, brand_url, ad_context, connected_accounts } = params
 
   const accountsText = connected_accounts.length > 0
-    ? connected_accounts.map(a => `- ${a.platform}: ${a.account_name} (${a.account_id})`).join('\n')
+    ? connected_accounts.map(a => `- ${a.platform}: ${a.account_name} (Account ID: ${a.account_id})`).join('\n')
     : 'No ad accounts connected yet.'
 
   const contextParts = [
@@ -179,9 +196,9 @@ function buildPrompt(params: {
   ].filter(Boolean).join('\n')
 
   const typeDescriptions: Record<string, string> = {
-    audit: 'Perform a comprehensive multi-platform paid advertising audit covering all connected platforms. Apply 186 weighted checks across Google Ads, Meta Ads, LinkedIn, TikTok, Microsoft Ads, and YouTube.',
-    google: 'Perform a deep Google Ads audit with 74 weighted checks across: Conversion Tracking (25%), Wasted Spend (20%), Account Structure (15%), Keywords (15%), Ad Copy (15%), and Settings (10%). Include PMax, Search, Display, and Smart Bidding analysis.',
-    meta: 'Perform a comprehensive Meta Ads audit with 46 checks across: Pixel/CAPI Health (30%), Creative Quality (30%), Account Structure (20%), and Audience Strategy (20%). Include Advantage+ assessment and EMQ optimization.',
+    audit: 'Perform a comprehensive multi-platform paid advertising audit covering all connected platforms. Apply 186 weighted checks across Google Ads, Meta Ads, LinkedIn, TikTok, Microsoft Ads, and YouTube. Base your analysis on industry best practices, the connected account IDs provided, and any additional context given. You do not have direct API access — provide expert guidance based on the information available.',
+    google: 'Perform a deep Google Ads audit with 74 weighted checks across: Conversion Tracking (25%), Wasted Spend (20%), Account Structure (15%), Keywords (15%), Ad Copy (15%), and Settings (10%). Include PMax, Search, Display, and Smart Bidding analysis. Base your findings on the Google Ads account ID provided and any context given. You do not have direct API access — provide expert guidance and best-practice recommendations.',
+    meta: 'Perform a comprehensive Meta Ads audit with 46 checks across: Pixel/CAPI Health (30%), Creative Quality (30%), Account Structure (20%), and Audience Strategy (20%). Include Advantage+ assessment and EMQ optimization. Base your analysis on the Meta account ID and context provided.',
     linkedin: 'Conduct a LinkedIn Ads audit with 25 checks covering: Campaign Structure, Targeting, Creative, Bidding, and Conversion Tracking. Include Thought Leader Ads and ABM evaluation.',
     tiktok: 'Perform a TikTok Ads audit with 25 checks emphasizing creative quality, safe zone compliance, Spark Ads testing, Smart+ campaign evaluation, and TikTok Shop integration.',
     microsoft: 'Audit Microsoft Advertising with 20 checks including Copilot integration features, Google import quality, Multimedia Ads, and unique Microsoft Ads features.',

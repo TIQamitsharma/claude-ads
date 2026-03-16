@@ -148,7 +148,9 @@ export default function ResultDetailPage() {
             <AlertTriangle size={24} className="text-red-400" />
           </div>
           <p className="text-slate-300 font-medium mb-1">Audit failed</p>
-          <p className="text-slate-500 text-sm">An error occurred while running the audit.</p>
+          <p className="text-slate-500 text-sm">
+            {run.error_message || 'An error occurred while running the audit.'}
+          </p>
           <Link to="/audit" className="btn-primary mt-4 inline-flex">
             <Zap size={14} /> Try again
           </Link>
