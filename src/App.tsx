@@ -12,6 +12,7 @@ import ResultsPage from './pages/ResultsPage'
 import ResultDetailPage from './pages/ResultDetailPage'
 import BrandDNAPage from './pages/BrandDNAPage'
 import SettingsPage from './pages/SettingsPage'
+import GoogleOAuthCallbackPage from './pages/GoogleOAuthCallbackPage'
 
 export default function App() {
   return (
@@ -21,6 +22,7 @@ export default function App() {
           <Route path="/login" element={<LoginPage />} />
           <Route path="/signup" element={<SignupPage />} />
           <Route path="/reset-password" element={<ResetPasswordPage />} />
+          <Route path="/auth/google/callback" element={<GoogleOAuthCallbackPage />} />
 
           <Route
             path="/"

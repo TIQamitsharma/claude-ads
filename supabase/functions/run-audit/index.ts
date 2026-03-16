@@ -83,9 +83,19 @@ Deno.serve(async (req: Request) => {
 
     const { data: adAccounts } = await supabase
       .from('ad_accounts')
-      .select('platform, account_id, account_name')
+      .select('platform, account_id, account_name, live_data, live_data_fetched_at, access_token, refresh_token, token_expires_at, google_customer_id, metadata, user_id')
       .eq('user_id', user.id)
       .eq('is_connected', true)
+
+    const googleAccount = (adAccounts || []).find(a => a.platform === 'google')
+    let googleLiveData: Record<string, unknown> | null = null
+
+    if (googleAccount && (audit_type === 'google' || audit_type === 'audit')) {
+      const freshToken = await getValidAccessToken(supabase, googleAccount)
+      if (freshToken) {
+        googleLiveData = await fetchGoogleLiveData(supabase, freshToken, googleAccount)
+      }
+    }
 
     const prompt = buildPrompt({
       audit_type,
@@ -95,7 +105,12 @@ Deno.serve(async (req: Request) => {
       competitor_name,
       brand_url,
       ad_context,
-      connected_accounts: adAccounts || [],
+      connected_accounts: (adAccounts || []).map(a => ({
+        platform: a.platform,
+        account_id: a.account_id,
+        account_name: a.account_name,
+      })),
+      google_live_data: googleLiveData,
     })
 
     const claudeRes = await fetch('https://api.anthropic.com/v1/messages', {
@@ -171,6 +186,130 @@ Deno.serve(async (req: Request) => {
   }
 })
 
+const GOOGLE_CLIENT_ID = Deno.env.get('GOOGLE_CLIENT_ID') ?? ''
+const GOOGLE_CLIENT_SECRET = Deno.env.get('GOOGLE_CLIENT_SECRET') ?? ''
+const GOOGLE_ADS_DEVELOPER_TOKEN = Deno.env.get('GOOGLE_ADS_DEVELOPER_TOKEN') ?? ''
+
+async function getValidAccessToken(
+  supabase: ReturnType<typeof createClient>,
+  account: Record<string, unknown>
+): Promise<string | null> {
+  const expiresAt = account.token_expires_at ? new Date(account.token_expires_at as string) : null
+  const isExpired = !expiresAt || expiresAt.getTime() - Date.now() < 60_000
+
+  if (!isExpired && account.access_token) return account.access_token as string
+  if (!account.refresh_token) return null
+
+  const res = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      client_id: GOOGLE_CLIENT_ID,
+      client_secret: GOOGLE_CLIENT_SECRET,
+      refresh_token: account.refresh_token as string,
+      grant_type: 'refresh_token',
+    }),
+  })
+
+  if (!res.ok) return null
+  const tokens = await res.json()
+  const newExpiry = new Date(Date.now() + (tokens.expires_in || 3600) * 1000).toISOString()
+
+  await supabase
+    .from('ad_accounts')
+    .update({ access_token: tokens.access_token, token_expires_at: newExpiry, updated_at: new Date().toISOString() })
+    .eq('user_id', account.user_id as string)
+    .eq('platform', 'google')
+
+  return tokens.access_token
+}
+
+async function fetchGoogleLiveData(
+  supabase: ReturnType<typeof createClient>,
+  accessToken: string,
+  account: Record<string, unknown>
+): Promise<Record<string, unknown> | null> {
+  const customerIds: string[] = (account.metadata as Record<string, unknown>)?.customer_ids as string[]
+    || (account.google_customer_id ? [account.google_customer_id as string] : [])
+
+  if (!customerIds.length) return null
+
+  const results = await Promise.all(
+    customerIds.slice(0, 3).map(id => fetchCustomerCampaigns(accessToken, id))
+  )
+  const accounts = results.filter(Boolean)
+  if (!accounts.length) return null
+
+  const liveData = { fetched_at: new Date().toISOString(), accounts }
+  await supabase
+    .from('ad_accounts')
+    .update({ live_data: liveData, live_data_fetched_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+    .eq('user_id', account.user_id as string)
+    .eq('platform', 'google')
+
+  return liveData
+}
+
+async function fetchCustomerCampaigns(accessToken: string, customerId: string): Promise<Record<string, unknown> | null> {
+  const cleanId = customerId.replace(/-/g, '')
+  const query = `
+    SELECT campaign.id, campaign.name, campaign.status, campaign.advertising_channel_type,
+      metrics.impressions, metrics.clicks, metrics.cost_micros,
+      metrics.conversions, metrics.ctr, metrics.average_cpc, metrics.cost_per_conversion
+    FROM campaign
+    WHERE segments.date DURING LAST_30_DAYS AND campaign.status != 'REMOVED'
+    ORDER BY metrics.cost_micros DESC LIMIT 50`
+
+  try {
+    const res = await fetch(`https://googleads.googleapis.com/v17/customers/${cleanId}/googleAds:search`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+        'developer-token': GOOGLE_ADS_DEVELOPER_TOKEN,
+      },
+      body: JSON.stringify({ query }),
+    })
+
+    if (!res.ok) return null
+    const data = await res.json()
+    const rows = data.results || []
+
+    const campaigns = rows.map((row: Record<string, unknown>) => {
+      const c = row.campaign as Record<string, unknown>
+      const m = row.metrics as Record<string, unknown>
+      const costMicros = Number(m?.cost_micros ?? 0)
+      return {
+        id: c?.id, name: c?.name, status: c?.status, type: c?.advertising_channel_type,
+        impressions: Number(m?.impressions ?? 0), clicks: Number(m?.clicks ?? 0),
+        cost: costMicros / 1_000_000, conversions: Number(m?.conversions ?? 0),
+        ctr: Number(m?.ctr ?? 0), avg_cpc: Number(m?.average_cpc ?? 0) / 1_000_000,
+        cost_per_conversion: Number(m?.cost_per_conversion ?? 0) / 1_000_000,
+      }
+    })
+
+    const totalSpend = campaigns.reduce((s: number, c: Record<string, unknown>) => s + (c.cost as number), 0)
+    const totalClicks = campaigns.reduce((s: number, c: Record<string, unknown>) => s + (c.clicks as number), 0)
+    const totalImpressions = campaigns.reduce((s: number, c: Record<string, unknown>) => s + (c.impressions as number), 0)
+    const totalConversions = campaigns.reduce((s: number, c: Record<string, unknown>) => s + (c.conversions as number), 0)
+
+    return {
+      customer_id: cleanId, campaigns,
+      summary: {
+        total_campaigns: campaigns.length,
+        active_campaigns: campaigns.filter((c: Record<string, unknown>) => c.status === 'ENABLED').length,
+        total_spend_30d: totalSpend, total_clicks_30d: totalClicks,
+        total_impressions_30d: totalImpressions, total_conversions_30d: totalConversions,
+        avg_ctr: totalImpressions > 0 ? totalClicks / totalImpressions : 0,
+        avg_cpc: totalClicks > 0 ? totalSpend / totalClicks : 0,
+        cost_per_conversion: totalConversions > 0 ? totalSpend / totalConversions : 0,
+      },
+    }
+  } catch {
+    return null
+  }
+}
+
 function buildPrompt(params: {
   audit_type: string
   platform: string
@@ -180,8 +319,9 @@ function buildPrompt(params: {
   brand_url?: string
   ad_context?: string
   connected_accounts: Array<{ platform: string; account_id: string; account_name: string }>
+  google_live_data?: Record<string, unknown> | null
 }): string {
-  const { audit_type, platform, industry, landing_url, competitor_name, brand_url, ad_context, connected_accounts } = params
+  const { audit_type, platform, industry, landing_url, competitor_name, brand_url, ad_context, connected_accounts, google_live_data } = params
 
   const accountsText = connected_accounts.length > 0
     ? connected_accounts.map(a => `- ${a.platform}: ${a.account_name} (Account ID: ${a.account_id})`).join('\n')
@@ -212,11 +352,34 @@ function buildPrompt(params: {
 
   const instruction = typeDescriptions[audit_type] || typeDescriptions.audit
 
+  let liveDataSection = ''
+  if (google_live_data) {
+    const accounts = (google_live_data.accounts as Record<string, unknown>[]) || []
+    const lines: string[] = []
+    for (const acct of accounts) {
+      const s = acct.summary as Record<string, number>
+      lines.push(`Customer ID: ${acct.customer_id}`)
+      lines.push(`  Active campaigns: ${s.active_campaigns} / ${s.total_campaigns}`)
+      lines.push(`  30-day spend: $${s.total_spend_30d.toFixed(2)}`)
+      lines.push(`  Clicks: ${s.total_clicks_30d.toLocaleString()}, Impressions: ${s.total_impressions_30d.toLocaleString()}`)
+      lines.push(`  Conversions: ${s.total_conversions_30d}, CPA: $${s.cost_per_conversion > 0 ? s.cost_per_conversion.toFixed(2) : 'N/A'}`)
+      lines.push(`  Avg CTR: ${(s.avg_ctr * 100).toFixed(2)}%, Avg CPC: $${s.avg_cpc.toFixed(2)}`)
+      const campaigns = (acct.campaigns as Record<string, unknown>[]) || []
+      if (campaigns.length > 0) {
+        lines.push('  Top campaigns by spend:')
+        for (const c of campaigns.slice(0, 10)) {
+          lines.push(`    - [${c.status}] ${c.name} (${c.type}) | Spend: $${(c.cost as number).toFixed(2)} | Clicks: ${c.clicks} | Conv: ${c.conversions} | CTR: ${((c.ctr as number) * 100).toFixed(2)}%`)
+        }
+      }
+    }
+    liveDataSection = `\n## Live Google Ads Data (Last 30 Days)\n${lines.join('\n')}\n`
+  }
+
   return `You are a world-class paid advertising expert and consultant. ${instruction}
 
 ## Connected Ad Accounts
 ${accountsText}
-
+${liveDataSection}
 ## Context
 ${contextParts || 'No additional context provided.'}
 
