@@ -133,26 +133,41 @@ export default function IntegrationsPage() {
     setGoogleOAuthLoading(true)
     setGoogleOAuthError('')
     try {
-      const { data: { session } } = await supabase.auth.getSession()
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession()
+      if (sessionError || !sessionData.session) {
+        setGoogleOAuthError('Session expired. Please refresh the page and try again.')
+        setGoogleOAuthLoading(false)
+        return
+      }
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
       const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
       const res = await fetch(`${supabaseUrl}/functions/v1/google-ads-oauth`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${session?.access_token || anonKey}`,
+          Authorization: `Bearer ${sessionData.session.access_token}`,
           Apikey: anonKey,
         },
+        body: JSON.stringify({}),
       })
-      const data = await res.json()
-      if (!res.ok || !data.url) {
-        setGoogleOAuthError(data.error || 'Failed to initiate Google login.')
+      let data: Record<string, unknown> = {}
+      try {
+        data = await res.json()
+      } catch {
+        setGoogleOAuthError(`Server error (${res.status}). Please try again.`)
         setGoogleOAuthLoading(false)
         return
       }
-      window.location.href = data.url
-    } catch {
-      setGoogleOAuthError('Failed to connect. Please try again.')
+      if (!res.ok || !data.url) {
+        setGoogleOAuthError(
+          (typeof data.error === 'string' && data.error) ? data.error : `Failed to initiate Google login (${res.status}).`
+        )
+        setGoogleOAuthLoading(false)
+        return
+      }
+      window.location.href = data.url as string
+    } catch (err) {
+      setGoogleOAuthError(err instanceof Error ? err.message : 'Failed to connect. Please try again.')
       setGoogleOAuthLoading(false)
     }
   }
