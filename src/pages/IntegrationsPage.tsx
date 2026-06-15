@@ -44,6 +44,7 @@ export default function IntegrationsPage() {
   const { user } = useAuth()
   const [searchParams, setSearchParams] = useSearchParams()
   const [claudeKey, setClaudeKey] = useState<KeyState>(defaultKeyState())
+  const [openrouterKey, setOpenrouterKey] = useState<KeyState>(defaultKeyState())
   const [platforms, setPlatforms] = useState<Record<string, PlatformState>>(
     Object.fromEntries(PLATFORMS.map(p => [p.id, defaultPlatformState()]))
   )
@@ -82,6 +83,11 @@ export default function IntegrationsPage() {
       const claudeEntry = keys.find((k: { service: string; key_value: string }) => k.service === 'claude')
       if (claudeEntry) {
         setClaudeKey(prev => ({ ...prev, value: claudeEntry.key_value, saved: true }))
+      }
+
+      const orEntry = keys.find((k: { service: string; key_value: string }) => k.service === 'openrouter')
+      if (orEntry) {
+        setOpenrouterKey(prev => ({ ...prev, value: orEntry.key_value, saved: true }))
       }
 
       const updated: Record<string, PlatformState> = Object.fromEntries(
@@ -126,6 +132,27 @@ export default function IntegrationsPage() {
     setClaudeKey(prev => ({ ...prev, loading: true }))
     await supabase.from('api_keys').delete().eq('user_id', user.id).eq('service', 'claude')
     setClaudeKey({ ...defaultKeyState() })
+  }
+
+  const saveOpenRouterKey = async (e: FormEvent) => {
+    e.preventDefault()
+    if (!user || !openrouterKey.value.trim()) return
+    setOpenrouterKey(prev => ({ ...prev, loading: true, error: '' }))
+    const { error } = await supabase
+      .from('api_keys')
+      .upsert({ user_id: user.id, service: 'openrouter', key_value: openrouterKey.value.trim() }, { onConflict: 'user_id,service' })
+    if (error) {
+      setOpenrouterKey(prev => ({ ...prev, loading: false, error: error.message }))
+    } else {
+      setOpenrouterKey(prev => ({ ...prev, loading: false, saved: true, editing: false }))
+    }
+  }
+
+  const removeOpenRouterKey = async () => {
+    if (!user) return
+    setOpenrouterKey(prev => ({ ...prev, loading: true }))
+    await supabase.from('api_keys').delete().eq('user_id', user.id).eq('service', 'openrouter')
+    setOpenrouterKey({ ...defaultKeyState() })
   }
 
   const connectGoogle = async () => {
@@ -356,6 +383,84 @@ export default function IntegrationsPage() {
                   <button onClick={() => setClaudeKey(prev => ({ ...prev, editing: true }))} className="btn-ghost text-xs">Edit</button>
                   <button onClick={removeClaudeKey} disabled={claudeKey.loading} className="btn-danger text-xs">
                     {claudeKey.loading ? <Loader2 size={13} className="animate-spin" /> : <X size={13} />}
+                    Remove
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2 className="section-title mb-1">OpenRouter API <span className="badge-neutral ml-2 text-xs align-middle">Alternative</span></h2>
+        <p className="section-subtitle mb-4">Use OpenRouter instead of Claude directly — access Claude and 200+ other models via one key.</p>
+
+        <div className="card p-5">
+          <div className="flex items-start gap-4">
+            <div className="w-10 h-10 bg-[#0f1117] border border-[#1e2d45] rounded-lg flex items-center justify-center shrink-0">
+              <Key size={18} className="text-violet-400" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="font-medium text-slate-200 text-sm">OpenRouter</span>
+                {openrouterKey.saved && !openrouterKey.editing && (
+                  <span className="badge-success"><Check size={11} /> Connected</span>
+                )}
+              </div>
+              <p className="text-xs text-slate-500 mb-3">
+                Supports Claude, GPT-4, Gemini and more.{' '}
+                <a href="https://openrouter.ai/keys" target="_blank" rel="noopener noreferrer"
+                  className="text-violet-400 hover:text-violet-300 inline-flex items-center gap-0.5">
+                  Get API key <ExternalLink size={11} />
+                </a>
+                {claudeKey.saved && !openrouterKey.saved && (
+                  <span className="ml-2 text-amber-400">· Claude key takes priority when both are set</span>
+                )}
+              </p>
+
+              {openrouterKey.error && (
+                <div className="flex items-center gap-2 text-xs text-red-400 mb-3">
+                  <AlertCircle size={13} /> {openrouterKey.error}
+                </div>
+              )}
+
+              {(!openrouterKey.saved || openrouterKey.editing) ? (
+                <form onSubmit={saveOpenRouterKey} className="flex gap-2">
+                  <div className="relative flex-1">
+                    <input
+                      type={openrouterKey.show ? 'text' : 'password'}
+                      value={openrouterKey.value}
+                      onChange={e => setOpenrouterKey(prev => ({ ...prev, value: e.target.value }))}
+                      placeholder="sk-or-v1-..."
+                      className="input pr-10 font-mono text-xs"
+                      required
+                    />
+                    <button type="button"
+                      onClick={() => setOpenrouterKey(prev => ({ ...prev, show: !prev.show }))}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300">
+                      {openrouterKey.show ? <EyeOff size={14} /> : <Eye size={14} />}
+                    </button>
+                  </div>
+                  <button type="submit" disabled={openrouterKey.loading} className="btn-primary shrink-0">
+                    {openrouterKey.loading ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
+                    Save
+                  </button>
+                  {openrouterKey.editing && (
+                    <button type="button" onClick={() => setOpenrouterKey(prev => ({ ...prev, editing: false }))} className="btn-ghost">
+                      <X size={14} />
+                    </button>
+                  )}
+                </form>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <div className="flex-1 flex items-center gap-2 px-3 py-2 bg-[#0f1117] border border-[#1e2d45] rounded-lg">
+                    <CheckCircle2 size={14} className="text-green-400 shrink-0" />
+                    <span className="text-xs text-slate-400 font-mono">{openrouterKey.value.slice(0, 12)}{'•'.repeat(16)}</span>
+                  </div>
+                  <button onClick={() => setOpenrouterKey(prev => ({ ...prev, editing: true }))} className="btn-ghost text-xs">Edit</button>
+                  <button onClick={removeOpenRouterKey} disabled={openrouterKey.loading} className="btn-danger text-xs">
+                    {openrouterKey.loading ? <Loader2 size={13} className="animate-spin" /> : <X size={13} />}
                     Remove
                   </button>
                 </div>

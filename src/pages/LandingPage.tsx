@@ -1,8 +1,5 @@
 import { Link } from 'react-router-dom'
-import {
-  Zap, Shield, Globe, CheckCircle, ArrowRight,
-  Search, TrendingUp, Target, Brain, Star, ChevronRight,
-} from 'lucide-react'
+import { Zap, Shield, Globe, CircleCheck as CheckCircle, ArrowRight, Search, TrendingUp, Target, Brain, Star, ChevronRight } from 'lucide-react'
 
 const FEATURES = [
   {

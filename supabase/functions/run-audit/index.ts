@@ -56,15 +56,16 @@ Deno.serve(async (req: Request) => {
     const { run_id: bodyRunId, audit_type, platform, industry, landing_url, competitor_name, brand_url, ad_context } = body
     run_id = bodyRunId
 
-    const { data: keyData } = await supabase
-      .from('api_keys')
-      .select('key_value')
-      .eq('user_id', user.id)
-      .eq('service', 'claude')
-      .maybeSingle()
+    const [claudeKeyRes, openrouterKeyRes] = await Promise.all([
+      supabase.from('api_keys').select('key_value').eq('user_id', user.id).eq('service', 'claude').maybeSingle(),
+      supabase.from('api_keys').select('key_value').eq('user_id', user.id).eq('service', 'openrouter').maybeSingle(),
+    ])
 
-    if (!keyData?.key_value) {
-      const msg = 'Claude API key not configured. Add it in Integrations.'
+    const claudeApiKey = claudeKeyRes.data?.key_value || null
+    const openrouterApiKey = openrouterKeyRes.data?.key_value || null
+
+    if (!claudeApiKey && !openrouterApiKey) {
+      const msg = 'No API key configured. Add a Claude or OpenRouter API key in Integrations.'
       await supabase
         .from('audit_runs')
         .update({ status: 'failed', error_message: msg, updated_at: new Date().toISOString() })
@@ -113,23 +114,41 @@ Deno.serve(async (req: Request) => {
       google_live_data: googleLiveData,
     })
 
-    const claudeRes = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': keyData.key_value,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: 'claude-opus-4-5',
-        max_tokens: 4096,
-        messages: [{ role: 'user', content: prompt }],
-      }),
-    })
+    let aiRes: Response
+    if (claudeApiKey) {
+      aiRes = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': claudeApiKey,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model: 'claude-opus-4-5',
+          max_tokens: 4096,
+          messages: [{ role: 'user', content: prompt }],
+        }),
+      })
+    } else {
+      aiRes = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${openrouterApiKey}`,
+          'HTTP-Referer': Deno.env.get('APP_URL') ?? 'https://claude-ads.app',
+          'X-Title': 'Claude Ads',
+        },
+        body: JSON.stringify({
+          model: 'anthropic/claude-opus-4-5',
+          max_tokens: 4096,
+          messages: [{ role: 'user', content: prompt }],
+        }),
+      })
+    }
 
-    if (!claudeRes.ok) {
-      const errText = await claudeRes.text()
-      let friendlyMsg = `Claude API error (${claudeRes.status})`
+    if (!aiRes.ok) {
+      const errText = await aiRes.text()
+      let friendlyMsg = `AI API error (${aiRes.status})`
       try {
         const errJson = JSON.parse(errText)
         if (errJson?.error?.message) friendlyMsg = errJson.error.message
@@ -145,8 +164,10 @@ Deno.serve(async (req: Request) => {
       })
     }
 
-    const claudeData = await claudeRes.json()
-    const rawOutput = claudeData.content?.[0]?.text || ''
+    const aiData = await aiRes.json()
+    const rawOutput = claudeApiKey
+      ? (aiData.content?.[0]?.text || '')
+      : (aiData.choices?.[0]?.message?.content || '')
 
     const parsed = parseAuditOutput(rawOutput)
 
