@@ -44,12 +44,11 @@ export default function DashboardPage() {
           .from('api_keys')
           .select('service')
           .eq('user_id', user.id)
-          .eq('service', 'claude')
-          .maybeSingle(),
+          .in('service', ['claude', 'openrouter']),
       ])
       setRecentRuns(runsRes.data || [])
       setAdAccounts(accountsRes.data || [])
-      setHasClaudeKey(!!keysRes.data)
+      setHasClaudeKey(!!(keysRes.data && keysRes.data.length > 0))
 
       const completedRuns = (runsRes.data || []).filter(r => r.status === 'complete')
       if (completedRuns.length > 0) {
